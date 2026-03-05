@@ -1,0 +1,364 @@
+================================================================================
+        DOCUMENTACION DEL PROYECTO: AIRBNB BERLIN ANALYTICS DASHBOARD
+================================================================================
+Fecha de creacion: 4 de Marzo de 2026
+Herramienta: Cortex Code CLI
+Autor: Pedro Ulloa (asistido por Cortex Code)
+
+================================================================================
+                            1. RESUMEN DEL PROYECTO
+================================================================================
+
+Aplicacion web interactiva desarrollada con Streamlit para analizar datos de 
+Airbnb Berlin almacenados en Snowflake. El dashboard proporciona KPIs dinamicos,
+visualizaciones interactivas y analisis de sentimiento de reviews.
+
+--------------------------------------------------------------------------------
+OBJETIVO PRINCIPAL:
+--------------------------------------------------------------------------------
+Crear una aplicacion accesible desde cualquier navegador web que presente
+indicadores dinamicos basados en los datos de la base de datos AIRBNB en
+Snowflake.
+
+================================================================================
+                         2. FASE DE PLANEACION
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 ANALISIS DE LA BASE DE DATOS
+--------------------------------------------------------------------------------
+
+Base de datos: AIRBNB
+Schema: RAW
+Conexion Snowflake: TXA18114 (cuenta: tda19796)
+
+TABLAS DISPONIBLES:
++------------------+------------+----------------------------------------+
+| Tabla            | Registros  | Columnas Principales                   |
++------------------+------------+----------------------------------------+
+| RAW_LISTINGS     | 17,499     | ID, LISTING_URL, NAME, ROOM_TYPE,      |
+|                  |            | MINIMUM_NIGHTS, HOST_ID, PRICE,        |
+|                  |            | CREATED_AT, UPDATED_AT                 |
++------------------+------------+----------------------------------------+
+| RAW_HOSTS        | 14,111     | ID, NAME, IS_SUPERHOST, CREATED_AT,    |
+|                  |            | UPDATED_AT                             |
++------------------+------------+----------------------------------------+
+| RAW_REVIEWS      | 410,284    | LISTING_ID, DATE, REVIEWER_NAME,       |
+|                  |            | COMMENTS, SENTIMENT                    |
++------------------+------------+----------------------------------------+
+
+NOTA: No se encontraron datos geograficos (latitud/longitud), por lo que
+se descarto la visualizacion en mapa.
+
+--------------------------------------------------------------------------------
+2.2 DECISIONES DE DISENO
+--------------------------------------------------------------------------------
+
+[DECISION 1] Framework de Dashboard
+- Opcion elegida: Streamlit
+- Razon: Integracion nativa con Snowflake, desarrollo rapido, interfaz moderna
+
+[DECISION 2] Libreria de Graficos
+- Opcion elegida: Plotly
+- Razon: Graficos interactivos, buena integracion con Streamlit
+
+[DECISION 3] Visualizacion Geografica
+- Opcion elegida: Sin mapa
+- Razon: Los datos no contienen columnas de latitud/longitud
+
+[DECISION 4] Metodo de Autenticacion
+- Problema inicial: externalbrowser bloqueado por Azure
+- Problema secundario: MFA habilitado impide autenticacion por password
+- Solucion final: Usar conexion existente de Snowflake CLI (OAuth con token 
+  en cache)
+
+--------------------------------------------------------------------------------
+2.3 KPIs DEFINIDOS
+--------------------------------------------------------------------------------
+
+1. Total Listings      - Cantidad total de propiedades listadas
+2. Total Hosts         - Cantidad de anfitriones unicos
+3. Total Reviews       - Cantidad total de resenas
+4. Precio Promedio     - Media aritmetica de precios
+5. Precio Mediana      - Mediana de precios (mas representativa)
+6. Superhosts          - Cantidad y porcentaje de superhosts
+
+================================================================================
+                      3. ARQUITECTURA DE LA SOLUCION
+================================================================================
+
+--------------------------------------------------------------------------------
+3.1 DIAGRAMA DE ARQUITECTURA
+--------------------------------------------------------------------------------
+
++------------------------------------------------------------------+
+|                        CAPA DE PRESENTACION                       |
++------------------------------------------------------------------+
+|                                                                   |
+|   +-----------------------------------------------------------+  |
+|   |                    STREAMLIT APP                          |  |
+|   |                 (airbnb_dashboard.py)                     |  |
+|   |                                                           |  |
+|   |  +----------------+  +----------------+  +--------------+ |  |
+|   |  |    Header      |  |     KPIs       |  |   Boton      | |  |
+|   |  |    + Titulo    |  |   (6 metricas) |  |  Actualizar  | |  |
+|   |  +----------------+  +----------------+  +--------------+ |  |
+|   |                                                           |  |
+|   |  +-----------------------------------------------------+ |  |
+|   |  |                    TABS                             | |  |
+|   |  | +-----------+ +----------+ +----------+ +--------+  | |  |
+|   |  | |Propiedades| |Sentimient| |Tendencias| | Hosts  |  | |  |
+|   |  | +-----------+ +----------+ +----------+ +--------+  | |  |
+|   |  +-----------------------------------------------------+ |  |
+|   +-----------------------------------------------------------+  |
+|                              |                                   |
++------------------------------------------------------------------+
+                               |
+                               | HTTP (localhost:8501)
+                               v
++------------------------------------------------------------------+
+|                       CAPA DE LOGICA                             |
++------------------------------------------------------------------+
+|                                                                   |
+|   +-----------------------------------------------------------+  |
+|   |              FUNCIONES DE CARGA DE DATOS                  |  |
+|   |                                                           |  |
+|   |  +------------------------+  +-------------------------+  |  |
+|   |  | load_aggregated_stats()|  | load_room_type_distrib()|  |  |
+|   |  | - Total listings       |  | - Conteo por room_type  |  |  |
+|   |  | - Hosts unicos         |  | - Precio promedio       |  |  |
+|   |  | - Precio prom/mediana  |  +-------------------------+  |  |
+|   |  +------------------------+                               |  |
+|   |                                                           |  |
+|   |  +------------------------+  +-------------------------+  |  |
+|   |  | load_sentiment_distrib()|  | load_reviews_by_year() |  |  |
+|   |  | - Positivo/Neutral/Neg |  | - Tendencia temporal    |  |  |
+|   |  +------------------------+  | - Sentimiento por anio  |  |  |
+|   |                              +-------------------------+  |  |
+|   |  +------------------------+  +-------------------------+  |  |
+|   |  | load_top_hosts()       |  | load_price_by_room()    |  |  |
+|   |  | - Top 15 hosts         |  | - Precios <= $500       |  |  |
+|   |  | - Superhost status     |  | - Para boxplot/histog.  |  |  |
+|   |  +------------------------+  +-------------------------+  |  |
+|   +-----------------------------------------------------------+  |
+|                              |                                   |
+|                     @st.cache_data (TTL=3600s)                   |
+|                              |                                   |
++------------------------------------------------------------------+
+                               |
+                               | Snowflake Connector (st.connection)
+                               v
++------------------------------------------------------------------+
+|                       CAPA DE DATOS                              |
++------------------------------------------------------------------+
+|                                                                   |
+|   +-----------------------------------------------------------+  |
+|   |                    SNOWFLAKE                              |  |
+|   |                                                           |  |
+|   |   Conexion: TXA18114                                      |  |
+|   |   Autenticacion: OAUTH_AUTHORIZATION_CODE                 |  |
+|   |   Token Cache: client_store_temporary_credential = true   |  |
+|   |                                                           |  |
+|   |   +---------------------------------------------------+   |  |
+|   |   |              DATABASE: AIRBNB                     |   |  |
+|   |   |              SCHEMA: RAW                          |   |  |
+|   |   |                                                   |   |  |
+|   |   |   +--------------+  +-----------+  +------------+ |   |  |
+|   |   |   | RAW_LISTINGS |  | RAW_HOSTS |  | RAW_REVIEWS| |   |  |
+|   |   |   |   17,499     |  |  14,111   |  |  410,284   | |   |  |
+|   |   |   +--------------+  +-----------+  +------------+ |   |  |
+|   |   +---------------------------------------------------+   |  |
+|   +-----------------------------------------------------------+  |
+|                                                                   |
++------------------------------------------------------------------+
+
+--------------------------------------------------------------------------------
+3.2 FLUJO DE DATOS
+--------------------------------------------------------------------------------
+
+1. Usuario accede a http://localhost:8501
+2. Streamlit carga airbnb_dashboard.py
+3. Se establece conexion con Snowflake usando token OAuth en cache
+4. Se ejecutan queries SQL para obtener datos agregados
+5. Los datos se cachean por 1 hora (@st.cache_data ttl=3600)
+6. Plotly genera visualizaciones interactivas
+7. Usuario puede refrescar datos con boton "Actualizar"
+
+--------------------------------------------------------------------------------
+3.3 COMPONENTES DE VISUALIZACION
+--------------------------------------------------------------------------------
+
+TAB 1 - PROPIEDADES:
+  - Grafico de dona: Distribucion por tipo de habitacion
+  - Grafico de barras: Precio promedio por tipo
+  - Boxplot: Distribucion de precios por tipo
+  - Histograma: Distribucion general de precios
+
+TAB 2 - SENTIMIENTO:
+  - Grafico de dona: Distribucion de sentimiento (pos/neu/neg)
+  - Area chart: Evolucion del sentimiento por anio
+
+TAB 3 - TENDENCIAS:
+  - Line chart: Cantidad de reviews por anio
+
+TAB 4 - HOSTS:
+  - Barras horizontales: Top 15 hosts por numero de propiedades
+  - Tabla expandible: Detalle completo de hosts
+
+================================================================================
+                    4. PROBLEMAS ENCONTRADOS Y SOLUCIONES
+================================================================================
+
+--------------------------------------------------------------------------------
+PROBLEMA 1: Error al crear archivos en ruta OneDrive
+--------------------------------------------------------------------------------
+Error: EEXIST - El sistema no pudo crear archivos directamente
+Solucion: Usar directorio existente y herramienta 'edit' en lugar de 'write'
+
+--------------------------------------------------------------------------------
+PROBLEMA 2: Streamlit no reconocido como comando
+--------------------------------------------------------------------------------
+Error: "streamlit" no se reconoce como un comando interno o externo
+Solucion: pip install streamlit plotly snowflake-connector-python
+
+--------------------------------------------------------------------------------
+PROBLEMA 3: Streamlit pide email interactivamente
+--------------------------------------------------------------------------------
+Error: El proceso se detiene esperando input de email
+Solucion: Usar flag --server.headless=true
+
+--------------------------------------------------------------------------------
+PROBLEMA 4: Autenticacion externalbrowser bloqueada por Azure
+--------------------------------------------------------------------------------
+Error: Azure bloquea la ventana emergente de autenticacion SSO
+Solucion inicial: Cambiar a autenticacion por password
+
+--------------------------------------------------------------------------------
+PROBLEMA 5: MFA requerido para autenticacion por password
+--------------------------------------------------------------------------------
+Error: "MFA with TOTP is required"
+Solucion final: Usar conexion existente de Snowflake CLI que ya tiene
+                token OAuth en cache (connection_name = "TXA18114")
+
+================================================================================
+                       5. ESTRUCTURA DE ARCHIVOS
+================================================================================
+
+proyecto_cortex_code_AIRBNB/
+|
++-- airbnb_dashboard.py         # Aplicacion principal (247 lineas)
+|   |
+|   +-- Imports (streamlit, pandas, plotly)
+|   +-- Configuracion de pagina
+|   +-- Paleta de colores Airbnb
+|   +-- Funciones de conexion (@st.cache_resource)
+|   +-- Funciones de carga de datos (@st.cache_data)
+|   +-- Funciones de renderizado (header, KPIs)
+|   +-- Layout principal (tabs)
+|   +-- Footer
+|
++-- .streamlit/
+|   |
+|   +-- secrets.toml            # Configuracion de conexion Snowflake
+|       |
+|       +-- connection_name = "TXA18114"
+|       +-- database = "AIRBNB"
+|       +-- schema = "RAW"
+|
++-- DOCUMENTACION_PROYECTO.txt  # Este archivo
+
+================================================================================
+                      6. INSTRUCCIONES DE USO
+================================================================================
+
+--------------------------------------------------------------------------------
+REQUISITOS PREVIOS:
+--------------------------------------------------------------------------------
+- Python 3.12+
+- Conexion Snowflake configurada en ~/.snowflake/connections.toml
+- Paquetes: streamlit, plotly, snowflake-connector-python
+
+--------------------------------------------------------------------------------
+EJECUTAR EL DASHBOARD:
+--------------------------------------------------------------------------------
+1. Abrir terminal en el directorio del proyecto
+2. Ejecutar: streamlit run airbnb_dashboard.py --server.headless=true
+3. Abrir navegador en: http://localhost:8501
+
+--------------------------------------------------------------------------------
+DETENER EL DASHBOARD:
+--------------------------------------------------------------------------------
+- Presionar Ctrl+C en la terminal
+- O cerrar la ventana de terminal
+
+--------------------------------------------------------------------------------
+ACTUALIZAR DATOS:
+--------------------------------------------------------------------------------
+- Click en boton "Actualizar" en la esquina superior derecha
+- Los datos se cachean por 1 hora automaticamente
+
+================================================================================
+                         7. PALETA DE COLORES
+================================================================================
+
+COLORES AIRBNB UTILIZADOS:
++-------------+----------+----------------------------------+
+| Nombre      | Codigo   | Uso                              |
++-------------+----------+----------------------------------+
+| Primary     | #FF5A5F  | Color principal, sentim. negativo|
+| Secondary   | #00A699  | Superhosts, sentim. positivo     |
+| Accent      | #FC642D  | Acentos                          |
+| Dark        | #484848  | Texto oscuro, unknown            |
+| Light       | #767676  | Texto secundario, neutral        |
++-------------+----------+----------------------------------+
+
+================================================================================
+                           8. QUERIES SQL
+================================================================================
+
+-- Estadisticas agregadas de listings
+SELECT COUNT(*) as total_listings, 
+       COUNT(DISTINCT HOST_ID) as unique_hosts,
+       AVG(CAST(REPLACE(PRICE, '$', '') AS DECIMAL(10,2))) as avg_price,
+       MEDIAN(CAST(REPLACE(PRICE, '$', '') AS DECIMAL(10,2))) as median_price
+FROM AIRBNB.RAW.RAW_LISTINGS 
+WHERE PRICE IS NOT NULL;
+
+-- Distribucion por tipo de habitacion
+SELECT ROOM_TYPE, COUNT(*) as count,
+       AVG(CAST(REPLACE(PRICE, '$', '') AS DECIMAL(10,2))) as avg_price
+FROM AIRBNB.RAW.RAW_LISTINGS 
+WHERE PRICE IS NOT NULL
+GROUP BY ROOM_TYPE 
+ORDER BY count DESC;
+
+-- Distribucion de sentimiento
+SELECT COALESCE(SENTIMENT, 'unknown') as sentiment, COUNT(*) as count
+FROM AIRBNB.RAW.RAW_REVIEWS 
+GROUP BY SENTIMENT 
+ORDER BY count DESC;
+
+-- Reviews por anio con sentimiento
+SELECT YEAR(DATE) as year, COUNT(*) as reviews_count,
+       SUM(CASE WHEN SENTIMENT = 'positive' THEN 1 ELSE 0 END) as positive,
+       SUM(CASE WHEN SENTIMENT = 'neutral' THEN 1 ELSE 0 END) as neutral,
+       SUM(CASE WHEN SENTIMENT = 'negative' THEN 1 ELSE 0 END) as negative
+FROM AIRBNB.RAW.RAW_REVIEWS 
+WHERE DATE IS NOT NULL
+GROUP BY YEAR(DATE) 
+ORDER BY year;
+
+-- Top hosts
+SELECT l.HOST_ID, h.NAME as host_name, h.IS_SUPERHOST, 
+       COUNT(*) as listing_count,
+       AVG(CAST(REPLACE(l.PRICE, '$', '') AS DECIMAL(10,2))) as avg_price
+FROM AIRBNB.RAW.RAW_LISTINGS l
+LEFT JOIN AIRBNB.RAW.RAW_HOSTS h ON l.HOST_ID = h.ID
+WHERE l.PRICE IS NOT NULL
+GROUP BY l.HOST_ID, h.NAME, h.IS_SUPERHOST
+ORDER BY listing_count DESC 
+LIMIT 15;
+
+================================================================================
+                              FIN DEL DOCUMENTO
+================================================================================
